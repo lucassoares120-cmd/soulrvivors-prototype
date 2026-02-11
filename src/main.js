@@ -61,6 +61,8 @@ class GameScene extends Phaser.Scene {
     this.fireRange = 420;
     this.bulletSpeed = 460;
     this.bulletDamage = 1;
+    this.playerInvulnerableUntil = 0;
+    this.playerBlinkEvent = null;
 
     this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
     this.cameras.main.setBounds(-WORLD_SIZE / 2, -WORLD_SIZE / 2, WORLD_SIZE, WORLD_SIZE);
@@ -238,6 +240,7 @@ class GameScene extends Phaser.Scene {
 
   hitEnemy(bullet, enemy) {
     bullet.destroy();
+    this.flashEnemyHit(enemy);
     enemy.hp -= this.bulletDamage;
 
     if (enemy.hp <= 0) {
@@ -247,8 +250,12 @@ class GameScene extends Phaser.Scene {
   }
 
   damagePlayer(player, enemy) {
+    if (this.time.now < this.playerInvulnerableUntil) return;
     if (enemy.lastHit && this.time.now - enemy.lastHit < 450) return;
+
     enemy.lastHit = this.time.now;
+    this.playerInvulnerableUntil = this.time.now + 500;
+    this.startPlayerBlink(300);
 
     this.stats.hp = Math.max(0, this.stats.hp - 8);
     this.updateHud();
@@ -256,6 +263,40 @@ class GameScene extends Phaser.Scene {
     if (this.stats.hp <= 0) {
       this.triggerGameOver();
     }
+  }
+
+  startPlayerBlink(durationMs = 300) {
+    if (this.playerBlinkEvent) {
+      this.playerBlinkEvent.remove(false);
+      this.playerBlinkEvent = null;
+    }
+
+    this.player.alpha = 0.35;
+    const blinkDelay = 60;
+    const repeatCount = Math.max(0, Math.floor(durationMs / blinkDelay) - 1);
+
+    this.playerBlinkEvent = this.time.addEvent({
+      delay: blinkDelay,
+      repeat: repeatCount,
+      callback: () => {
+        this.player.alpha = this.player.alpha < 1 ? 1 : 0.35;
+      },
+      callbackScope: this,
+      onComplete: () => {
+        this.player.alpha = 1;
+        this.playerBlinkEvent = null;
+      },
+    });
+  }
+
+  flashEnemyHit(enemy) {
+    if (!enemy || !enemy.active) return;
+
+    enemy.setAlpha(0.3);
+    this.time.delayedCall(100, () => {
+      if (!enemy.active) return;
+      enemy.setAlpha(1);
+    });
   }
 
   dropGem(x, y) {
