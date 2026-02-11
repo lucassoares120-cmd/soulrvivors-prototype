@@ -76,7 +76,8 @@ class GameScene extends Phaser.Scene {
     this.input.keyboard.on('keydown-TWO', () => this.pickUpgrade(1));
     this.input.keyboard.on('keydown-THREE', () => this.pickUpgrade(2));
     this.input.keyboard.on('keydown-R', () => {
-      if (this.stats.gameOver) this.scene.restart();
+      if (!this.stats.gameOver) return;
+      this.hardResetGame();
     });
   }
 
@@ -345,6 +346,17 @@ class GameScene extends Phaser.Scene {
     this.stats.isPaused = true;
     this.physics.world.isPaused = true;
     this.hud.status.setText('GAME OVER - pressione R para reiniciar');
+  }
+
+  hardResetGame() {
+    // Hard reset garante limpeza total do estado do jogo em memória.
+    if (typeof window !== 'undefined' && window.location) {
+      window.location.reload();
+      return;
+    }
+
+    // Fallback defensivo caso reload não exista no ambiente.
+    globalThis.location?.assign?.(globalThis.location.href);
   }
 
   updateHud() {
