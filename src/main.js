@@ -70,6 +70,7 @@ class GameScene extends Phaser.Scene {
     this.dashDuration = 120;
     this.dashCooldown = 1200;
     this.dashReadyAt = 0;
+    this.dashEndAt = 0;
     this.dashDirection = new Phaser.Math.Vector2(1, 0);
 
     // Coleta magnética simples de XP (sem cálculo pesado).
@@ -208,6 +209,11 @@ class GameScene extends Phaser.Scene {
       this.tryStartDash(this.lastMoveDirection.clone());
     }
 
+    // Failsafe: nunca deixar dash preso em true.
+    if (this.isDashing && this.time.now >= this.dashEndAt) {
+      this.finishDash();
+    }
+
     if (this.isDashing) {
       this.player.body.setVelocity(
         this.dashDirection.x * this.speed * this.dashSpeedMultiplier,
@@ -237,23 +243,34 @@ class GameScene extends Phaser.Scene {
   tryStartDash(direction) {
     if (this.isDashing || this.time.now < this.dashReadyAt || this.stats.gameOver) return;
 
-    if (direction.lengthSq() <= 0) {
-      direction = this.lastMoveDirection.clone();
+    let dashDir = direction;
+    if (!dashDir || dashDir.lengthSq() <= 0) {
+      dashDir = this.lastMoveDirection?.clone() || new Phaser.Math.Vector2(1, 0);
+    }
+    if (dashDir.lengthSq() <= 0) {
+      dashDir = new Phaser.Math.Vector2(1, 0);
     }
 
-    direction.normalize();
-    this.dashDirection = direction;
+    dashDir.normalize();
+    this.dashDirection = dashDir;
     this.isDashing = true;
+    this.dashEndAt = this.time.now + this.dashDuration;
     this.dashReadyAt = this.time.now + this.dashCooldown;
 
     // Dash concede i-frames durante sua duração.
-    this.playerInvulnerableUntil = Math.max(this.playerInvulnerableUntil, this.time.now + this.dashDuration);
+    this.playerInvulnerableUntil = Math.max(this.playerInvulnerableUntil, this.dashEndAt);
 
-    // Feedback visual/sensorial do dash.
+    // Feedback mínimo e seguro do dash.
     this.player.setTint(0xb3e8ff);
     this.player.setScale(1.2);
-    this.spawnDashAfterimage();
-    this.cameras.main.shake(100, 0.005);
+
+    console.debug('dash start', {
+      now: this.time.now,
+      endAt: this.dashEndAt,
+      readyAt: this.dashReadyAt,
+      dirX: this.dashDirection.x,
+      dirY: this.dashDirection.y,
+    });
 
     this.time.delayedCall(this.dashDuration, () => {
       this.finishDash();
@@ -263,23 +280,12 @@ class GameScene extends Phaser.Scene {
   }
 
   finishDash() {
+    if (!this.isDashing) return;
+
     this.isDashing = false;
     this.player.clearTint();
     this.player.setScale(1);
-  }
-
-  spawnDashAfterimage() {
-    const ghost = this.add.circle(this.player.x, this.player.y, 18, 0x9ad8ff, 0.4);
-    ghost.setDepth((this.player.depth || 0) - 1);
-
-    this.tweens.add({
-      targets: ghost,
-      alpha: 0,
-      scale: 0.8,
-      duration: 140,
-      ease: 'Quad.easeOut',
-      onComplete: () => ghost.destroy(),
-    });
+    console.debug('dash end');
   }
 
   updateDashHud() {
