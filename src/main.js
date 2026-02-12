@@ -64,6 +64,14 @@ class GameScene extends Phaser.Scene {
     this.playerInvulnerableUntil = 0;
     this.playerBlinkEvent = null;
 
+    this.lastMoveDirection = new Phaser.Math.Vector2(1, 0);
+    this.isDashing = false;
+    this.dashSpeedMultiplier = 3.6;
+    this.dashDuration = 120;
+    this.dashCooldown = 1200;
+    this.dashReadyAt = 0;
+    this.dashDirection = new Phaser.Math.Vector2(1, 0);
+
     // Coleta magnética simples de XP (sem cálculo pesado).
     this.gemMagnetRadius = 140;
     this.gemMagnetRadiusSq = this.gemMagnetRadius * this.gemMagnetRadius;
@@ -78,6 +86,7 @@ class GameScene extends Phaser.Scene {
   createInput() {
     this.cursors = this.input.keyboard.createCursorKeys();
     this.wasd = this.input.keyboard.addKeys('W,S,A,D');
+    this.spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
 
     this.input.keyboard.on('keydown-ONE', () => this.pickUpgrade(0));
     this.input.keyboard.on('keydown-TWO', () => this.pickUpgrade(1));
@@ -96,8 +105,9 @@ class GameScene extends Phaser.Scene {
       xp: this.add.text(16, 40, '', textStyle).setScrollFactor(0),
       timer: this.add.text(16, 64, '', textStyle).setScrollFactor(0),
       status: this.add.text(GAME_WIDTH / 2, 16, '', { fontSize: '20px', color: '#f7e479' }).setOrigin(0.5, 0).setScrollFactor(0),
-      xpBarBg: this.add.rectangle(16, 92, 220, 12, 0x1e2a47).setOrigin(0, 0).setScrollFactor(0),
-      xpBarFill: this.add.rectangle(16, 92, 220, 12, 0x5fe87a).setOrigin(0, 0).setScrollFactor(0),
+      dash: this.add.text(16, 84, '', textStyle).setScrollFactor(0),
+      xpBarBg: this.add.rectangle(16, 112, 220, 12, 0x1e2a47).setOrigin(0, 0).setScrollFactor(0),
+      xpBarFill: this.add.rectangle(16, 112, 220, 12, 0x5fe87a).setOrigin(0, 0).setScrollFactor(0),
     };
 
     this.updateHud();
@@ -185,8 +195,27 @@ class GameScene extends Phaser.Scene {
     if (this.cursors.up.isDown || this.wasd.W.isDown) moveY = -1;
     if (this.cursors.down.isDown || this.wasd.S.isDown) moveY = 1;
 
+    const hasDirectionInput = moveX !== 0 || moveY !== 0;
     const magnitude = Math.hypot(moveX, moveY) || 1;
-    this.player.body.setVelocity((moveX / magnitude) * this.speed, (moveY / magnitude) * this.speed);
+    const moveDirX = moveX / magnitude;
+    const moveDirY = moveY / magnitude;
+
+    if (hasDirectionInput) {
+      this.lastMoveDirection.set(moveDirX, moveDirY);
+    }
+
+    if (Phaser.Input.Keyboard.JustDown(this.spaceKey)) {
+      this.tryStartDash(this.lastMoveDirection.clone());
+    }
+
+    if (this.isDashing) {
+      this.player.body.setVelocity(
+        this.dashDirection.x * this.speed * this.dashSpeedMultiplier,
+        this.dashDirection.y * this.speed * this.dashSpeedMultiplier,
+      );
+    } else {
+      this.player.body.setVelocity(moveDirX * this.speed, moveDirY * this.speed);
+    }
 
     this.enemies.children.iterate((enemy) => {
       if (!enemy || !enemy.active) return;
@@ -194,6 +223,7 @@ class GameScene extends Phaser.Scene {
     });
 
     this.updateGemMagnet();
+    this.updateDashHud();
 
     this.bullets.children.iterate((bullet) => {
       if (!bullet || !bullet.active) return;
@@ -201,6 +231,44 @@ class GameScene extends Phaser.Scene {
         bullet.destroy();
       }
     });
+  }
+
+
+  tryStartDash(direction) {
+    if (this.isDashing || this.time.now < this.dashReadyAt || this.stats.gameOver) return;
+
+    if (direction.lengthSq() <= 0) {
+      direction = this.lastMoveDirection.clone();
+    }
+
+    direction.normalize();
+    this.dashDirection = direction;
+    this.isDashing = true;
+    this.dashReadyAt = this.time.now + this.dashCooldown;
+
+    // Dash concede i-frames durante sua duração.
+    this.playerInvulnerableUntil = Math.max(this.playerInvulnerableUntil, this.time.now + this.dashDuration);
+
+    this.time.delayedCall(this.dashDuration, () => {
+      this.isDashing = false;
+    });
+
+    this.updateDashHud();
+  }
+
+  updateDashHud() {
+    if (this.stats.gameOver) {
+      this.hud.dash.setText('DASH: -');
+      return;
+    }
+
+    const remaining = Math.max(0, this.dashReadyAt - this.time.now);
+    if (remaining <= 0 && !this.isDashing) {
+      this.hud.dash.setText('DASH: pronto');
+      return;
+    }
+
+    this.hud.dash.setText(`DASH: ${(remaining / 1000).toFixed(1)}s`);
   }
 
   spawnWave() {
@@ -434,6 +502,7 @@ class GameScene extends Phaser.Scene {
     this.hud.hp.setText(`HP: ${this.stats.hp}/${this.stats.maxHp} | LVL ${this.stats.level}`);
     this.hud.xp.setText(`XP: ${this.stats.xp}/${this.stats.xpToNext}`);
     this.hud.timer.setText(`Tempo: ${this.stats.elapsedSeconds}s`);
+    this.updateDashHud();
 
     const xpRatio = Phaser.Math.Clamp(this.stats.xp / this.stats.xpToNext, 0, 1);
     this.hud.xpBarFill.setScale(xpRatio, 1);
