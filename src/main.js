@@ -66,7 +66,7 @@ class GameScene extends Phaser.Scene {
 
     this.lastMoveDirection = new Phaser.Math.Vector2(1, 0);
     this.isDashing = false;
-    this.dashSpeedMultiplier = 3.6;
+    this.dashSpeedMultiplier = 4.5;
     this.dashDuration = 120;
     this.dashCooldown = 1200;
     this.dashReadyAt = 0;
@@ -249,11 +249,37 @@ class GameScene extends Phaser.Scene {
     // Dash concede i-frames durante sua duração.
     this.playerInvulnerableUntil = Math.max(this.playerInvulnerableUntil, this.time.now + this.dashDuration);
 
+    // Feedback visual/sensorial do dash.
+    this.player.setTint(0xb3e8ff);
+    this.player.setScale(1.2);
+    this.spawnDashAfterimage();
+    this.cameras.main.shake(100, 0.005);
+
     this.time.delayedCall(this.dashDuration, () => {
-      this.isDashing = false;
+      this.finishDash();
     });
 
     this.updateDashHud();
+  }
+
+  finishDash() {
+    this.isDashing = false;
+    this.player.clearTint();
+    this.player.setScale(1);
+  }
+
+  spawnDashAfterimage() {
+    const ghost = this.add.circle(this.player.x, this.player.y, 18, 0x9ad8ff, 0.4);
+    ghost.setDepth((this.player.depth || 0) - 1);
+
+    this.tweens.add({
+      targets: ghost,
+      alpha: 0,
+      scale: 0.8,
+      duration: 140,
+      ease: 'Quad.easeOut',
+      onComplete: () => ghost.destroy(),
+    });
   }
 
   updateDashHud() {
@@ -264,7 +290,7 @@ class GameScene extends Phaser.Scene {
 
     const remaining = Math.max(0, this.dashReadyAt - this.time.now);
     if (remaining <= 0 && !this.isDashing) {
-      this.hud.dash.setText('DASH: pronto');
+      this.hud.dash.setText('DASH: PRONTO');
       return;
     }
 
