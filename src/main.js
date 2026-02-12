@@ -4,6 +4,8 @@ import './style.css';
 const GAME_WIDTH = 960;
 const GAME_HEIGHT = 540;
 const WORLD_SIZE = 3000;
+const PLAYER_COLOR_NORMAL = 0x4fd7ff;
+const PLAYER_COLOR_DASH = 0x7ce6ff;
 
 class GameScene extends Phaser.Scene {
   constructor() {
@@ -51,7 +53,7 @@ class GameScene extends Phaser.Scene {
   }
 
   createPlayer() {
-    this.player = this.add.circle(GAME_WIDTH / 2, GAME_HEIGHT / 2, 18, 0x4fd7ff);
+    this.player = this.add.circle(GAME_WIDTH / 2, GAME_HEIGHT / 2, 18, PLAYER_COLOR_NORMAL);
     this.physics.add.existing(this.player);
     this.player.body.setCollideWorldBounds(true);
     this.player.body.setCircle(18);
@@ -107,8 +109,10 @@ class GameScene extends Phaser.Scene {
       timer: this.add.text(16, 64, '', textStyle).setScrollFactor(0),
       status: this.add.text(GAME_WIDTH / 2, 16, '', { fontSize: '20px', color: '#f7e479' }).setOrigin(0.5, 0).setScrollFactor(0),
       dash: this.add.text(16, 84, '', textStyle).setScrollFactor(0),
-      xpBarBg: this.add.rectangle(16, 112, 220, 12, 0x1e2a47).setOrigin(0, 0).setScrollFactor(0),
-      xpBarFill: this.add.rectangle(16, 112, 220, 12, 0x5fe87a).setOrigin(0, 0).setScrollFactor(0),
+      dashBarBg: this.add.rectangle(16, 104, 220, 8, 0x2a3048).setOrigin(0, 0).setScrollFactor(0),
+      dashBarFill: this.add.rectangle(16, 104, 220, 8, 0x7ce6ff).setOrigin(0, 0).setScrollFactor(0),
+      xpBarBg: this.add.rectangle(16, 118, 220, 12, 0x1e2a47).setOrigin(0, 0).setScrollFactor(0),
+      xpBarFill: this.add.rectangle(16, 118, 220, 12, 0x5fe87a).setOrigin(0, 0).setScrollFactor(0),
     };
 
     this.updateHud();
@@ -261,8 +265,7 @@ class GameScene extends Phaser.Scene {
     this.playerInvulnerableUntil = Math.max(this.playerInvulnerableUntil, this.dashEndAt);
 
     // Feedback mínimo e seguro do dash.
-    this.player.setTint(0xb3e8ff);
-    this.player.setScale(1.2);
+    this.setPlayerDashVisual(true);
 
     console.debug('dash start', {
       now: this.time.now,
@@ -283,24 +286,61 @@ class GameScene extends Phaser.Scene {
     if (!this.isDashing) return;
 
     this.isDashing = false;
-    this.player.clearTint();
-    this.player.setScale(1);
+    this.setPlayerDashVisual(false);
     console.debug('dash end');
   }
 
+
+  setPlayerDashVisual(isDashing) {
+    // Preferência 1: Shape (Circle/Arc/Rectangle/etc.)
+    if (this.player && typeof this.player.setFillStyle === 'function') {
+      if (isDashing) {
+        this.player.setFillStyle(PLAYER_COLOR_DASH, 1);
+      } else {
+        this.player.setFillStyle(PLAYER_COLOR_NORMAL, 1);
+      }
+      this.player.setScale(isDashing ? 1.2 : 1);
+      this.player.alpha = isDashing ? 0.95 : 1;
+      return;
+    }
+
+    // Preferência 2: Sprite/Image (se um dia trocar por sprite)
+    if (this.player && typeof this.player.setTint === 'function') {
+      if (isDashing) this.player.setTint(PLAYER_COLOR_DASH);
+      else this.player.clearTint();
+      this.player.setScale(isDashing ? 1.2 : 1);
+      this.player.alpha = isDashing ? 0.95 : 1;
+      return;
+    }
+
+    // Fallback: pelo menos não quebra
+    if (this.player) {
+      this.player.alpha = isDashing ? 0.85 : 1;
+      if (typeof this.player.setScale === 'function') this.player.setScale(isDashing ? 1.2 : 1);
+    }
+  }
+
   updateDashHud() {
+    if (!this.hud?.dash || !this.hud?.dashBarFill) return;
+
     if (this.stats.gameOver) {
       this.hud.dash.setText('DASH: -');
+      this.hud.dashBarFill.setScale(0, 1);
       return;
     }
 
     const remaining = Math.max(0, this.dashReadyAt - this.time.now);
-    if (remaining <= 0 && !this.isDashing) {
+    const isReady = remaining <= 0 && !this.isDashing;
+
+    if (isReady) {
       this.hud.dash.setText('DASH: PRONTO');
+      this.hud.dashBarFill.setScale(1, 1);
       return;
     }
 
-    this.hud.dash.setText(`DASH: ${(remaining / 1000).toFixed(1)}s`);
+    this.hud.dash.setText(`DASH: ${Math.max(0, remaining / 1000).toFixed(1)}s`);
+    const charge = Phaser.Math.Clamp(1 - (remaining / this.dashCooldown), 0, 1);
+    this.hud.dashBarFill.setScale(charge, 1);
   }
 
   spawnWave() {
