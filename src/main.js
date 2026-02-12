@@ -81,6 +81,8 @@ class GameScene extends Phaser.Scene {
     this.gemMagnetRadius = this.baseGemMagnetRadius;
     this.gemMagnetSpeed = this.baseGemMagnetSpeed;
     this.gemMagnetRadiusSq = this.gemMagnetRadius * this.gemMagnetRadius;
+    this.baseGemMaxSpeed = 420;
+    this.gemMaxSpeed = this.baseGemMaxSpeed;
 
     this.superMagnetEndAt = 0;
 
@@ -459,6 +461,7 @@ class GameScene extends Phaser.Scene {
     this.physics.add.existing(gem);
     gem.body.setAllowGravity(false);
     gem.body.setVelocity(0, 0);
+    gem.magnetSpeed = 0;
     gem.xpValue = 1;
     this.gems.add(gem);
   }
@@ -485,6 +488,7 @@ class GameScene extends Phaser.Scene {
     this.gemMagnetRadius = 500;
     this.gemMagnetSpeed = 560;
     this.gemMagnetRadiusSq = this.gemMagnetRadius * this.gemMagnetRadius;
+    this.gemMaxSpeed = 620;
   }
 
   updateSuperMagnetState() {
@@ -493,25 +497,46 @@ class GameScene extends Phaser.Scene {
       this.gemMagnetRadius = this.baseGemMagnetRadius;
       this.gemMagnetSpeed = this.baseGemMagnetSpeed;
       this.gemMagnetRadiusSq = this.gemMagnetRadius * this.gemMagnetRadius;
+      this.gemMaxSpeed = this.baseGemMaxSpeed;
     }
   }
 
   updateGemMagnet() {
+    const maxDistanceSq = 3000 * 3000;
+
     this.gems.children.iterate((gem) => {
-      if (!gem || !gem.active) return;
+      if (!gem || !gem.active || !gem.body) return;
 
       const dx = this.player.x - gem.x;
       const dy = this.player.y - gem.y;
       const distSq = (dx * dx) + (dy * dy);
 
-      if (distSq > this.gemMagnetRadiusSq || distSq <= 0.0001) return;
+      // Failsafe anti-infinito: remove gem perdida muito longe do player.
+      if (distSq > maxDistanceSq) {
+        gem.destroy();
+        return;
+      }
 
-      const invDist = 1 / Math.sqrt(distSq);
-      const targetVx = dx * invDist * this.gemMagnetSpeed;
-      const targetVy = dy * invDist * this.gemMagnetSpeed;
+      if (distSq <= this.gemMagnetRadiusSq && distSq > 0.0001) {
+        // Recalcula direção todo frame (seek), sem reaproveitar alvo antigo.
+        const dist = Math.sqrt(distSq);
+        const nx = dx / dist;
+        const ny = dy / dist;
 
-      gem.body.velocity.x += (targetVx - gem.body.velocity.x) * 0.2;
-      gem.body.velocity.y += (targetVy - gem.body.velocity.y) * 0.2;
+        const targetSpeed = Math.min(this.gemMaxSpeed, this.gemMagnetSpeed);
+        gem.magnetSpeed = Phaser.Math.Linear(gem.magnetSpeed || 0, targetSpeed, 0.22);
+
+        gem.body.setVelocity(nx * gem.magnetSpeed, ny * gem.magnetSpeed);
+        return;
+      }
+
+      // Fora do raio: freio para não continuar "voando" sozinha.
+      gem.magnetSpeed = Phaser.Math.Linear(gem.magnetSpeed || 0, 0, 0.15);
+      gem.body.velocity.x *= 0.85;
+      gem.body.velocity.y *= 0.85;
+
+      if (Math.abs(gem.body.velocity.x) < 2) gem.body.velocity.x = 0;
+      if (Math.abs(gem.body.velocity.y) < 2) gem.body.velocity.y = 0;
     });
   }
 
