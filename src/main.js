@@ -64,6 +64,11 @@ class GameScene extends Phaser.Scene {
     this.playerInvulnerableUntil = 0;
     this.playerBlinkEvent = null;
 
+    // Coleta magnética simples de XP (sem cálculo pesado).
+    this.gemMagnetRadius = 140;
+    this.gemMagnetRadiusSq = this.gemMagnetRadius * this.gemMagnetRadius;
+    this.gemMagnetSpeed = 280;
+
     this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
     this.cameras.main.setBounds(-WORLD_SIZE / 2, -WORLD_SIZE / 2, WORLD_SIZE, WORLD_SIZE);
 
@@ -91,6 +96,8 @@ class GameScene extends Phaser.Scene {
       xp: this.add.text(16, 40, '', textStyle).setScrollFactor(0),
       timer: this.add.text(16, 64, '', textStyle).setScrollFactor(0),
       status: this.add.text(GAME_WIDTH / 2, 16, '', { fontSize: '20px', color: '#f7e479' }).setOrigin(0.5, 0).setScrollFactor(0),
+      xpBarBg: this.add.rectangle(16, 92, 220, 12, 0x1e2a47).setOrigin(0, 0).setScrollFactor(0),
+      xpBarFill: this.add.rectangle(16, 92, 220, 12, 0x5fe87a).setOrigin(0, 0).setScrollFactor(0),
     };
 
     this.updateHud();
@@ -185,6 +192,8 @@ class GameScene extends Phaser.Scene {
       if (!enemy || !enemy.active) return;
       this.physics.moveToObject(enemy, this.player, enemy.speed);
     });
+
+    this.updateGemMagnet();
 
     this.bullets.children.iterate((bullet) => {
       if (!bullet || !bullet.active) return;
@@ -302,6 +311,8 @@ class GameScene extends Phaser.Scene {
   dropGem(x, y) {
     const gem = this.add.star(x, y, 5, 3, 8, 0x5fe87a);
     this.physics.add.existing(gem);
+    gem.body.setAllowGravity(false);
+    gem.body.setVelocity(0, 0);
     gem.xpValue = 1;
     this.gems.add(gem);
   }
@@ -319,6 +330,25 @@ class GameScene extends Phaser.Scene {
     }
 
     this.updateHud();
+  }
+
+  updateGemMagnet() {
+    this.gems.children.iterate((gem) => {
+      if (!gem || !gem.active) return;
+
+      const dx = this.player.x - gem.x;
+      const dy = this.player.y - gem.y;
+      const distSq = (dx * dx) + (dy * dy);
+
+      if (distSq > this.gemMagnetRadiusSq || distSq <= 0.0001) return;
+
+      const invDist = 1 / Math.sqrt(distSq);
+      const targetVx = dx * invDist * this.gemMagnetSpeed;
+      const targetVy = dy * invDist * this.gemMagnetSpeed;
+
+      gem.body.velocity.x += (targetVx - gem.body.velocity.x) * 0.2;
+      gem.body.velocity.y += (targetVy - gem.body.velocity.y) * 0.2;
+    });
   }
 
   openUpgradeMenu() {
@@ -404,6 +434,9 @@ class GameScene extends Phaser.Scene {
     this.hud.hp.setText(`HP: ${this.stats.hp}/${this.stats.maxHp} | LVL ${this.stats.level}`);
     this.hud.xp.setText(`XP: ${this.stats.xp}/${this.stats.xpToNext}`);
     this.hud.timer.setText(`Tempo: ${this.stats.elapsedSeconds}s`);
+
+    const xpRatio = Phaser.Math.Clamp(this.stats.xp / this.stats.xpToNext, 0, 1);
+    this.hud.xpBarFill.setScale(xpRatio, 1);
   }
 }
 
