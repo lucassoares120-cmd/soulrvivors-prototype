@@ -76,9 +76,13 @@ class GameScene extends Phaser.Scene {
     this.dashDirection = new Phaser.Math.Vector2(1, 0);
 
     // Coleta magnética simples de XP (sem cálculo pesado).
-    this.gemMagnetRadius = 140;
+    this.baseGemMagnetRadius = 140;
+    this.baseGemMagnetSpeed = 280;
+    this.gemMagnetRadius = this.baseGemMagnetRadius;
+    this.gemMagnetSpeed = this.baseGemMagnetSpeed;
     this.gemMagnetRadiusSq = this.gemMagnetRadius * this.gemMagnetRadius;
-    this.gemMagnetSpeed = 280;
+
+    this.superMagnetEndAt = 0;
 
     this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
     this.cameras.main.setBounds(-WORLD_SIZE / 2, -WORLD_SIZE / 2, WORLD_SIZE, WORLD_SIZE);
@@ -113,6 +117,7 @@ class GameScene extends Phaser.Scene {
       dashBarFill: this.add.rectangle(16, 104, 220, 8, 0x7ce6ff).setOrigin(0, 0).setScrollFactor(0),
       xpBarBg: this.add.rectangle(16, 118, 220, 12, 0x1e2a47).setOrigin(0, 0).setScrollFactor(0),
       xpBarFill: this.add.rectangle(16, 118, 220, 12, 0x5fe87a).setOrigin(0, 0).setScrollFactor(0),
+      magnet: this.add.text(16, 134, '', { fontSize: '14px', color: '#9af9ff' }).setScrollFactor(0),
     };
 
     this.updateHud();
@@ -232,6 +237,7 @@ class GameScene extends Phaser.Scene {
       this.physics.moveToObject(enemy, this.player, enemy.speed);
     });
 
+    this.updateSuperMagnetState();
     this.updateGemMagnet();
     this.updateDashHud();
 
@@ -465,11 +471,29 @@ class GameScene extends Phaser.Scene {
       this.stats.xp -= this.stats.xpToNext;
       this.stats.level += 1;
       this.stats.xpToNext = Math.floor(this.stats.xpToNext * 1.35);
+      this.activateSuperMagnet(1000);
       this.openUpgradeMenu();
       break;
     }
 
     this.updateHud();
+  }
+
+
+  activateSuperMagnet(durationMs = 1000) {
+    this.superMagnetEndAt = this.time.now + durationMs;
+    this.gemMagnetRadius = 500;
+    this.gemMagnetSpeed = 560;
+    this.gemMagnetRadiusSq = this.gemMagnetRadius * this.gemMagnetRadius;
+  }
+
+  updateSuperMagnetState() {
+    if (this.superMagnetEndAt > 0 && this.time.now >= this.superMagnetEndAt) {
+      this.superMagnetEndAt = 0;
+      this.gemMagnetRadius = this.baseGemMagnetRadius;
+      this.gemMagnetSpeed = this.baseGemMagnetSpeed;
+      this.gemMagnetRadiusSq = this.gemMagnetRadius * this.gemMagnetRadius;
+    }
   }
 
   updateGemMagnet() {
@@ -578,6 +602,9 @@ class GameScene extends Phaser.Scene {
 
     const xpRatio = Phaser.Math.Clamp(this.stats.xp / this.stats.xpToNext, 0, 1);
     this.hud.xpBarFill.setScale(xpRatio, 1);
+
+    const magnetActive = this.superMagnetEndAt > this.time.now;
+    this.hud.magnet.setText(magnetActive ? 'MAGNET: ON' : '');
   }
 }
 
