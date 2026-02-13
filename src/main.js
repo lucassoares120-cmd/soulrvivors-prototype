@@ -122,6 +122,7 @@ class GameScene extends Phaser.Scene {
     this.createBackground();
     this.createGroups();
     this.createPlayer();
+    this.createParticleSystems();
     this.createInput();
     this.createHud();
     this.createSystems();
@@ -176,10 +177,62 @@ class GameScene extends Phaser.Scene {
 
     this.superMagnetEndAt = 0;
 
+    this.knockbackUntil = 0;
+    this.knockbackDuration = 110;
+    this.knockbackVelocity = new Phaser.Math.Vector2(0, 0);
+
     this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
     this.cameras.main.setBounds(-WORLD_SIZE / 2, -WORLD_SIZE / 2, WORLD_SIZE, WORLD_SIZE);
 
     this.physics.world.setBounds(-WORLD_SIZE / 2, -WORLD_SIZE / 2, WORLD_SIZE, WORLD_SIZE);
+  }
+
+
+  createParticleSystems() {
+    if (!this.textures.exists('fx-dot')) {
+      const g = this.make.graphics({ x: 0, y: 0, add: false });
+      g.fillStyle(0xffffff, 1);
+      g.fillCircle(2, 2, 2);
+      g.generateTexture('fx-dot', 4, 4);
+      g.destroy();
+    }
+
+    this.particleManager = this.add.particles(0, 0, 'fx-dot', {
+      emitting: false,
+    });
+
+    this.enemyBurstEmitter = this.particleManager.createEmitter({
+      speed: { min: 70, max: 170 },
+      angle: { min: 0, max: 360 },
+      scale: { start: 1.2, end: 0 },
+      alpha: { start: 0.9, end: 0 },
+      lifespan: 260,
+      blendMode: 'ADD',
+      tint: [0xff9559, 0xff4f4f],
+      emitting: false,
+    });
+
+    this.xpBurstEmitter = this.particleManager.createEmitter({
+      speed: { min: 60, max: 130 },
+      angle: { min: 0, max: 360 },
+      scale: { start: 1, end: 0 },
+      alpha: { start: 0.8, end: 0 },
+      lifespan: 220,
+      blendMode: 'ADD',
+      tint: [0x8fff98, 0xe9ff73],
+      emitting: false,
+    });
+
+    this.dashTrailEmitter = this.particleManager.createEmitter({
+      speed: { min: 15, max: 55 },
+      scale: { start: 0.9, end: 0 },
+      alpha: { start: 0.28, end: 0 },
+      lifespan: 220,
+      frequency: 36,
+      blendMode: 'ADD',
+      tint: [0x7ce6ff, 0xb4f1ff],
+      emitting: false,
+    });
   }
 
   createInput() {
@@ -335,6 +388,16 @@ class GameScene extends Phaser.Scene {
       );
     } else {
       this.player.body.setVelocity(moveDirX * this.speed, moveDirY * this.speed);
+
+      if (this.time.now < this.knockbackUntil) {
+        const kbFactor = (this.knockbackUntil - this.time.now) / this.knockbackDuration;
+        this.player.body.velocity.x += this.knockbackVelocity.x * kbFactor;
+        this.player.body.velocity.y += this.knockbackVelocity.y * kbFactor;
+      }
+    }
+
+    if (this.dashTrailEmitter && this.dashTrailEmitter.on) {
+      this.dashTrailEmitter.setPosition(this.player.x, this.player.y);
     }
 
     this.enemies.children.iterate((enemy) => {
@@ -390,6 +453,7 @@ class GameScene extends Phaser.Scene {
       this.finishDash();
     });
 
+    this.startDashTrail(260);
     this.audio.playDash();
     this.updateDashHud();
   }
@@ -399,9 +463,67 @@ class GameScene extends Phaser.Scene {
 
     this.isDashing = false;
     this.setPlayerDashVisual(false);
+    if (this.dashTrailEmitter) this.dashTrailEmitter.stop();
     console.debug('dash end');
   }
 
+
+
+  startDashTrail(durationMs = 260) {
+    if (!this.dashTrailEmitter) return;
+
+    this.dashTrailEmitter.setPosition(this.player.x, this.player.y);
+    this.dashTrailEmitter.start();
+
+    if (this.dashTrailStopEvent) this.dashTrailStopEvent.remove(false);
+    this.dashTrailStopEvent = this.time.delayedCall(durationMs, () => {
+      if (this.dashTrailEmitter) this.dashTrailEmitter.stop();
+      this.dashTrailStopEvent = null;
+    });
+  }
+
+  emitEnemyBurst(x, y) {
+    if (!this.enemyBurstEmitter) return;
+    this.enemyBurstEmitter.explode(10, x, y);
+  }
+
+  emitXpBurst(x, y) {
+    if (!this.xpBurstEmitter) return;
+    this.xpBurstEmitter.explode(8, x, y);
+  }
+
+  showShootFlash() {
+    const flash = this.add.circle(this.player.x, this.player.y, 8, 0xfff2a8, 0.65);
+    this.tweens.add({
+      targets: flash,
+      alpha: 0,
+      scale: 1.8,
+      duration: 60,
+      onComplete: () => flash.destroy(),
+    });
+  }
+
+  setPlayerDamageVisual(isDamaged) {
+    if (this.player && typeof this.player.setFillStyle === 'function') {
+      if (isDamaged) this.player.setFillStyle(0xff7a7a, 1);
+      else this.setPlayerDashVisual(this.isDashing);
+      return;
+    }
+
+    if (this.player && typeof this.player.setTint === 'function') {
+      if (isDamaged) this.player.setTint(0xff8080);
+      else if (this.isDashing) this.player.setTint(PLAYER_COLOR_DASH);
+      else this.player.clearTint();
+    }
+  }
+
+  applyKnockbackFromEnemy(enemy) {
+    const dx = this.player.x - enemy.x;
+    const dy = this.player.y - enemy.y;
+    const len = Math.hypot(dx, dy) || 1;
+    this.knockbackVelocity.set((dx / len) * 280, (dy / len) * 280);
+    this.knockbackUntil = this.time.now + this.knockbackDuration;
+  }
 
   setPlayerDashVisual(isDashing) {
     // Preferência 1: Shape (Circle/Arc/Rectangle/etc.)
@@ -412,7 +534,6 @@ class GameScene extends Phaser.Scene {
         this.player.setFillStyle(PLAYER_COLOR_NORMAL, 1);
       }
       this.player.setScale(isDashing ? 1.2 : 1);
-      this.player.alpha = isDashing ? 0.95 : 1;
       return;
     }
 
@@ -421,7 +542,6 @@ class GameScene extends Phaser.Scene {
       if (isDashing) this.player.setTint(PLAYER_COLOR_DASH);
       else this.player.clearTint();
       this.player.setScale(isDashing ? 1.2 : 1);
-      this.player.alpha = isDashing ? 0.95 : 1;
       return;
     }
 
@@ -481,6 +601,7 @@ class GameScene extends Phaser.Scene {
     this.physics.add.existing(bullet);
     this.bullets.add(bullet);
     this.physics.moveToObject(bullet, target, this.bulletSpeed);
+    this.showShootFlash();
     this.audio.playShoot();
   }
 
@@ -506,6 +627,7 @@ class GameScene extends Phaser.Scene {
     enemy.hp -= this.bulletDamage;
 
     if (enemy.hp <= 0) {
+      this.emitEnemyBurst(enemy.x, enemy.y);
       this.dropGem(enemy.x, enemy.y);
       enemy.destroy();
     }
@@ -517,7 +639,8 @@ class GameScene extends Phaser.Scene {
 
     enemy.lastHit = this.time.now;
     this.playerInvulnerableUntil = this.time.now + 500;
-    this.startPlayerBlink(300);
+    this.startPlayerBlink(380);
+    this.applyKnockbackFromEnemy(enemy);
 
     this.stats.hp = Math.max(0, this.stats.hp - 8);
     this.audio.playDamage();
@@ -534,6 +657,7 @@ class GameScene extends Phaser.Scene {
       this.playerBlinkEvent = null;
     }
 
+    this.setPlayerDamageVisual(true);
     this.player.alpha = 0.35;
     const blinkDelay = 60;
     const repeatCount = Math.max(0, Math.floor(durationMs / blinkDelay) - 1);
@@ -547,6 +671,7 @@ class GameScene extends Phaser.Scene {
       callbackScope: this,
       onComplete: () => {
         this.player.alpha = 1;
+        this.setPlayerDamageVisual(false);
         this.playerBlinkEvent = null;
       },
     });
@@ -573,7 +698,10 @@ class GameScene extends Phaser.Scene {
   }
 
   collectGem(player, gem) {
+    const gx = gem.x;
+    const gy = gem.y;
     gem.destroy();
+    this.emitXpBurst(gx, gy);
     this.stats.xp += gem.xpValue;
     this.audio.playXp();
 
@@ -602,6 +730,7 @@ class GameScene extends Phaser.Scene {
   updateSuperMagnetState() {
     if (this.superMagnetEndAt > 0 && this.time.now >= this.superMagnetEndAt) {
       this.superMagnetEndAt = 0;
+
       this.gemMagnetRadius = this.baseGemMagnetRadius;
       this.gemMagnetSpeed = this.baseGemMagnetSpeed;
       this.gemMagnetRadiusSq = this.gemMagnetRadius * this.gemMagnetRadius;
