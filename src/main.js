@@ -7,6 +7,94 @@ const WORLD_SIZE = 3000;
 const PLAYER_COLOR_NORMAL = 0x4fd7ff;
 const PLAYER_COLOR_DASH = 0x7ce6ff;
 
+
+class AudioManager {
+  constructor() {
+    this.ctx = null;
+    this.unlocked = false;
+    this.muted = false;
+  }
+
+  ensureContext() {
+    if (!this.ctx) {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return null;
+      this.ctx = new Ctx();
+    }
+    return this.ctx;
+  }
+
+  unlock() {
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') ctx.resume();
+    this.unlocked = true;
+  }
+
+  toggleMute() {
+    this.muted = !this.muted;
+    return this.muted;
+  }
+
+  canPlay() {
+    const ctx = this.ensureContext();
+    if (!ctx) return false;
+    if (!this.unlocked || this.muted) return false;
+    return true;
+  }
+
+  beep({ type = 'sine', freq = 440, duration = 0.08, gain = 0.04, rampTo = null, when = 0 } = {}) {
+    if (!this.canPlay()) return;
+    const ctx = this.ctx;
+    const start = ctx.currentTime + when;
+    const end = start + duration;
+
+    const osc = ctx.createOscillator();
+    const amp = ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(Math.max(40, freq), start);
+
+    if (rampTo) {
+      osc.frequency.exponentialRampToValueAtTime(Math.max(40, rampTo), end);
+    }
+
+    amp.gain.setValueAtTime(0.0001, start);
+    amp.gain.exponentialRampToValueAtTime(Math.max(0.0001, gain), start + 0.01);
+    amp.gain.exponentialRampToValueAtTime(0.0001, end);
+
+    osc.connect(amp);
+    amp.connect(ctx.destination);
+    osc.start(start);
+    osc.stop(end + 0.01);
+  }
+
+  playShoot() {
+    this.beep({ type: 'square', freq: 940, duration: 0.035, gain: 0.02, rampTo: 760 });
+  }
+
+  playDash() {
+    this.beep({ type: 'triangle', freq: 520, duration: 0.11, gain: 0.035, rampTo: 180 });
+  }
+
+  playXp() {
+    this.beep({ type: 'sine', freq: 620, duration: 0.05, gain: 0.03, rampTo: 860 });
+  }
+
+  playDamage() {
+    this.beep({ type: 'sawtooth', freq: 180, duration: 0.09, gain: 0.04, rampTo: 110 });
+  }
+
+  playLevelUp() {
+    this.beep({ type: 'sine', freq: 500, duration: 0.08, gain: 0.03, when: 0.0 });
+    this.beep({ type: 'sine', freq: 680, duration: 0.08, gain: 0.03, when: 0.09 });
+    this.beep({ type: 'triangle', freq: 860, duration: 0.11, gain: 0.03, when: 0.18 });
+  }
+
+  playGameOver() {
+    this.beep({ type: 'sawtooth', freq: 170, duration: 0.24, gain: 0.05, rampTo: 75 });
+  }
+}
+
 class GameScene extends Phaser.Scene {
   constructor() {
     super('game');
@@ -26,6 +114,8 @@ class GameScene extends Phaser.Scene {
       active: false,
       options: [],
     };
+
+    this.audio = new AudioManager();
   }
 
   create() {
@@ -97,6 +187,18 @@ class GameScene extends Phaser.Scene {
     this.wasd = this.input.keyboard.addKeys('W,S,A,D');
     this.spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
 
+    this.input.keyboard.on('keydown-M', () => {
+      this.audio.toggleMute();
+      this.updateHud();
+    });
+
+    const unlockAudio = () => {
+      this.audio.unlock();
+      this.updateHud();
+    };
+    this.input.keyboard.once('keydown', unlockAudio);
+    this.input.once('pointerdown', unlockAudio);
+
     this.input.keyboard.on('keydown-ONE', () => this.pickUpgrade(0));
     this.input.keyboard.on('keydown-TWO', () => this.pickUpgrade(1));
     this.input.keyboard.on('keydown-THREE', () => this.pickUpgrade(2));
@@ -120,6 +222,7 @@ class GameScene extends Phaser.Scene {
       xpBarBg: this.add.rectangle(16, 118, 220, 12, 0x1e2a47).setOrigin(0, 0).setScrollFactor(0),
       xpBarFill: this.add.rectangle(16, 118, 220, 12, 0x5fe87a).setOrigin(0, 0).setScrollFactor(0),
       magnet: this.add.text(16, 134, '', { fontSize: '14px', color: '#9af9ff' }).setScrollFactor(0),
+      sound: this.add.text(16, 150, '', { fontSize: '14px', color: '#ffd6a0' }).setScrollFactor(0),
     };
 
     this.updateHud();
@@ -287,6 +390,7 @@ class GameScene extends Phaser.Scene {
       this.finishDash();
     });
 
+    this.audio.playDash();
     this.updateDashHud();
   }
 
@@ -377,6 +481,7 @@ class GameScene extends Phaser.Scene {
     this.physics.add.existing(bullet);
     this.bullets.add(bullet);
     this.physics.moveToObject(bullet, target, this.bulletSpeed);
+    this.audio.playShoot();
   }
 
   findClosestEnemy() {
@@ -415,6 +520,7 @@ class GameScene extends Phaser.Scene {
     this.startPlayerBlink(300);
 
     this.stats.hp = Math.max(0, this.stats.hp - 8);
+    this.audio.playDamage();
     this.updateHud();
 
     if (this.stats.hp <= 0) {
@@ -469,12 +575,14 @@ class GameScene extends Phaser.Scene {
   collectGem(player, gem) {
     gem.destroy();
     this.stats.xp += gem.xpValue;
+    this.audio.playXp();
 
     while (this.stats.xp >= this.stats.xpToNext) {
       this.stats.xp -= this.stats.xpToNext;
       this.stats.level += 1;
       this.stats.xpToNext = Math.floor(this.stats.xpToNext * 1.35);
       this.activateSuperMagnet(1000);
+      this.audio.playLevelUp();
       this.openUpgradeMenu();
       break;
     }
@@ -606,6 +714,7 @@ class GameScene extends Phaser.Scene {
     this.stats.isPaused = true;
     this.physics.world.isPaused = true;
     this.hud.status.setText('GAME OVER - pressione R para reiniciar');
+    this.audio.playGameOver();
   }
 
   hardResetGame() {
@@ -630,6 +739,8 @@ class GameScene extends Phaser.Scene {
 
     const magnetActive = this.superMagnetEndAt > this.time.now;
     this.hud.magnet.setText(magnetActive ? 'MAGNET: ON' : '');
+
+    this.hud.sound.setText(this.audio.muted ? 'SOM: OFF' : 'SOM: ON');
   }
 }
 
