@@ -189,49 +189,48 @@ class GameScene extends Phaser.Scene {
 
 
   createParticleSystems() {
-    if (!this.textures.exists('fx-dot')) {
+    if (!this.textures.exists('p_dot')) {
       const g = this.make.graphics({ x: 0, y: 0, add: false });
       g.fillStyle(0xffffff, 1);
       g.fillCircle(2, 2, 2);
-      g.generateTexture('fx-dot', 4, 4);
+      g.generateTexture('p_dot', 4, 4);
       g.destroy();
     }
 
-    this.particleManager = this.add.particles(0, 0, 'fx-dot', {
-      emitting: false,
-    });
-
-    this.enemyBurstEmitter = this.particleManager.createEmitter({
+    this.fxEnemyParticles = this.add.particles(0, 0, 'p_dot', {
       speed: { min: 70, max: 170 },
       angle: { min: 0, max: 360 },
+      lifespan: 260,
+      quantity: 1,
       scale: { start: 1.2, end: 0 },
       alpha: { start: 0.9, end: 0 },
-      lifespan: 260,
       blendMode: 'ADD',
       tint: [0xff9559, 0xff4f4f],
-      emitting: false,
+      on: false,
     });
 
-    this.xpBurstEmitter = this.particleManager.createEmitter({
+    this.fxXpParticles = this.add.particles(0, 0, 'p_dot', {
       speed: { min: 60, max: 130 },
       angle: { min: 0, max: 360 },
+      lifespan: 220,
+      quantity: 1,
       scale: { start: 1, end: 0 },
       alpha: { start: 0.8, end: 0 },
-      lifespan: 220,
       blendMode: 'ADD',
       tint: [0x8fff98, 0xe9ff73],
-      emitting: false,
+      on: false,
     });
 
-    this.dashTrailEmitter = this.particleManager.createEmitter({
+    this.fxDashParticles = this.add.particles(0, 0, 'p_dot', {
       speed: { min: 15, max: 55 },
+      angle: { min: 150, max: 210 },
+      lifespan: 220,
+      quantity: 1,
       scale: { start: 0.9, end: 0 },
       alpha: { start: 0.28, end: 0 },
-      lifespan: 220,
-      frequency: 36,
       blendMode: 'ADD',
       tint: [0x7ce6ff, 0xb4f1ff],
-      emitting: false,
+      on: false,
     });
   }
 
@@ -396,10 +395,6 @@ class GameScene extends Phaser.Scene {
       }
     }
 
-    if (this.dashTrailEmitter && this.dashTrailEmitter.on) {
-      this.dashTrailEmitter.setPosition(this.player.x, this.player.y);
-    }
-
     this.enemies.children.iterate((enemy) => {
       if (!enemy || !enemy.active) return;
       this.physics.moveToObject(enemy, this.player, enemy.speed);
@@ -463,33 +458,37 @@ class GameScene extends Phaser.Scene {
 
     this.isDashing = false;
     this.setPlayerDashVisual(false);
-    if (this.dashTrailEmitter) this.dashTrailEmitter.stop();
     console.debug('dash end');
   }
 
 
 
   startDashTrail(durationMs = 260) {
-    if (!this.dashTrailEmitter) return;
+    if (!this.fxDashParticles) return;
 
-    this.dashTrailEmitter.setPosition(this.player.x, this.player.y);
-    this.dashTrailEmitter.start();
-
+    const steps = Math.max(1, Math.floor(durationMs / 40));
     if (this.dashTrailStopEvent) this.dashTrailStopEvent.remove(false);
-    this.dashTrailStopEvent = this.time.delayedCall(durationMs, () => {
-      if (this.dashTrailEmitter) this.dashTrailEmitter.stop();
-      this.dashTrailStopEvent = null;
+    this.dashTrailStopEvent = this.time.addEvent({
+      delay: 40,
+      repeat: steps - 1,
+      callback: () => {
+        if (!this.fxDashParticles || !this.player?.active) return;
+        this.fxDashParticles.emitParticleAt(this.player.x, this.player.y, 2);
+      },
+      onComplete: () => {
+        this.dashTrailStopEvent = null;
+      },
     });
   }
 
   emitEnemyBurst(x, y) {
-    if (!this.enemyBurstEmitter) return;
-    this.enemyBurstEmitter.explode(10, x, y);
+    if (!this.fxEnemyParticles) return;
+    this.fxEnemyParticles.emitParticleAt(x, y, 10);
   }
 
   emitXpBurst(x, y) {
-    if (!this.xpBurstEmitter) return;
-    this.xpBurstEmitter.explode(8, x, y);
+    if (!this.fxXpParticles) return;
+    this.fxXpParticles.emitParticleAt(x, y, 8);
   }
 
   showShootFlash() {
